@@ -22,7 +22,6 @@ export async function runPdddAnalysis(imageData: {
     },
     body: JSON.stringify(imageData),
   });
-
   if (!res.ok) {
     throw new Error(`PDDD API error: ${res.status}`);
   }

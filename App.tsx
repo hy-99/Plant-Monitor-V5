@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { Plant, PlantSnapshot } from './types';
 import Header from './components/Header';

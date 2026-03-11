@@ -179,7 +179,7 @@ Return ONLY a single JSON object that matches the schema. Do NOT include any ext
   let result: any;
   try {
     result = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: "gemini-2.5-flash",
       contents: { parts: [imagePart, textPart] },
       config: {
         temperature: 0.5,
