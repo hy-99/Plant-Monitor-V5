@@ -38,7 +38,7 @@ const PlantCard: React.FC<PlantCardProps> = ({ plant, onClick, style }) => {
     <div
       style={style}
       onClick={onClick}
-      className="bg-white rounded-xl shadow-lg overflow-hidden transform hover:scale-105 hover:shadow-2xl transition-all duration-300 cursor-pointer group"
+      className="group cursor-pointer overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/5 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl"
     >
       <div className="relative">
         <img
@@ -74,7 +74,7 @@ const PlantCard: React.FC<PlantCardProps> = ({ plant, onClick, style }) => {
           )}
         </div>
       </div>
-      <div className="p-4 bg-slate-50 text-center text-sm font-semibold text-primary group-hover:text-primary-dark transition-colors">
+      <div className="bg-white/5 p-4 text-center text-sm font-semibold text-primary transition-colors group-hover:text-accent">
         View Details &amp; History
       </div>
     </div>

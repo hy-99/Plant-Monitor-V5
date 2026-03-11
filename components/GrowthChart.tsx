@@ -14,8 +14,8 @@ const parseMeasurement = (value: string | null): number => {
 const GrowthChart: React.FC<GrowthChartProps> = ({ snapshots }) => {
     if (snapshots.length < 2) {
         return (
-            <div className="flex items-center justify-center h-64 bg-slate-50 rounded-lg">
-                <p className="text-text-secondary">
+            <div className="flex h-64 items-center justify-center rounded-lg bg-white/5">
+                <p className="text-slate-300">
                     Add another snapshot to see a growth chart.
                 </p>
             </div>
@@ -62,13 +62,13 @@ const GrowthChart: React.FC<GrowthChartProps> = ({ snapshots }) => {
                 {/* Y Axis Labels */}
                 {yAxisLabels.map(label => (
                     <g key={`y-${label.value}`}>
-                        <text x={margin.left - 8} y={label.y + 4} textAnchor="end" fontSize="10" fill="#64748b">{label.value} cm</text>
+                        <text x={margin.left - 8} y={label.y + 4} textAnchor="end" fontSize="10" fill="#94a3b8">{label.value} cm</text>
                     </g>
                 ))}
                 
                 {/* X Axis Labels */}
                 {xAxisLabels.map(d => (
-                     <text key={d.date.toISOString()} x={getX(d.date)} y={height - margin.bottom + 15} textAnchor="middle" fontSize="10" fill="#64748b">{d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>
+                     <text key={d.date.toISOString()} x={getX(d.date)} y={height - margin.bottom + 15} textAnchor="middle" fontSize="10" fill="#94a3b8">{d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>
                 ))}
                 
                 {/* Height Path */}
@@ -83,7 +83,7 @@ const GrowthChart: React.FC<GrowthChartProps> = ({ snapshots }) => {
                     <circle key={`w-${i}`} cx={getX(d.date)} cy={getY(d.width)} r="4" fill="#fff" stroke="#f97316" strokeWidth="2" />
                 ))}
             </svg>
-            <div className="flex justify-center items-center space-x-4 mt-2 text-sm text-text-secondary">
+            <div className="mt-2 flex items-center justify-center space-x-4 text-sm text-slate-300">
                 <div className="flex items-center">
                     <span className="h-2 w-4 rounded-full bg-primary mr-2"></span> Height
                 </div>

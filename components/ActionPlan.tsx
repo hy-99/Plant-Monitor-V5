@@ -19,13 +19,13 @@ const ActionPlan: React.FC<{ advice: CareAdvice[] }> = ({ advice }) => {
             {advice.map((item, index) => {
                 const Icon = getIcon(item.title);
                 return (
-                    <div key={index} className="flex items-start p-3 bg-slate-50 border-l-4 border-primary rounded-r-lg">
+                    <div key={index} className="flex items-start rounded-r-2xl border-l-4 border-primary bg-white/5 p-3">
                         <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center mr-4">
                            <Icon className="h-7 w-7 text-primary" />
                         </div>
                         <div>
-                            <p className="font-semibold text-text-primary">{item.title}</p>
-                            <p className="text-sm text-text-secondary">{item.description}</p>
+                            <p className="font-semibold text-slate-100">{item.title}</p>
+                            <p className="text-sm text-slate-300">{item.description}</p>
                         </div>
                     </div>
                 );

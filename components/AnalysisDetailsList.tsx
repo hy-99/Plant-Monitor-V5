@@ -19,9 +19,9 @@ const DetailItem: React.FC<{ icon: React.ReactNode; label: string; value: string
         <div className="flex-shrink-0 h-8 w-8 flex items-center justify-center bg-primary/10 rounded-full mr-3">
           {icon}
         </div>
-        <span className="text-sm font-medium text-text-secondary">{label}</span>
+        <span className="text-sm font-medium text-slate-300">{label}</span>
       </div>
-      <span className="text-sm font-semibold text-text-primary text-right">{value}</span>
+      <span className="text-right text-sm font-semibold text-slate-100">{value}</span>
     </li>
   );
 };
@@ -45,7 +45,7 @@ const HealthIndicator: React.FC<{ health: AnalysisResult['health'] }> = ({ healt
 
 const AnalysisDetailsList: React.FC<AnalysisDetailsListProps> = ({ analysis }) => {
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="divide-y divide-white/10">
       <DetailItem 
         icon={<TagIcon className="h-5 w-5 text-primary" />} 
         label="Common Name"

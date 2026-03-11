@@ -4,11 +4,18 @@ export interface Plant {
   snapshots: PlantSnapshot[];
 }
 
+export interface StorageUsage {
+  bytesUsed: number;
+  bytesLimit: number;
+  bytesRemaining: number;
+}
+
 export interface PlantSnapshot {
   id: string;
   imageUrl: string;
+  imageDataUrl?: string;
   analysis: AnalysisResult;
-  timestamp: string; // ISO date string
+  timestamp: string;
   summary?: string;
 }
 
@@ -19,28 +26,20 @@ export interface CareAdvice {
 
 export interface SpeciesCandidate {
   name: string;
-  confidence: number; // 0.0–1.0
+  confidence: number;
 }
 
 export interface AnalysisResult {
-  // final overall verdict from the main analysis
   isPlant: boolean;
-  confidence: number; // interpret this as: "confidence it really is a plant"
-
-  // NEW (optional) – where the plant decision came from & its own confidence
+  confidence: number;
   plantGateSource?: 'plant_gate_gemini' | 'direct_analysis' | 'other';
-  plantGateConfidence?: number; // 0.0–1.0 (from the pre-check)
-
-  // species info
+  plantGateConfidence?: number;
   species: string | null;
   commonName: string | null;
-
-  // NEW (optional) – list of candidate species (for future improvements)
   speciesCandidates?: SpeciesCandidate[];
-
   health: 'Healthy' | 'Stressed' | 'Unhealthy' | 'Unknown';
-  height: string | null; // e.g., "15 cm"
-  width: string | null; // e.g., "10 cm"
+  height: string | null;
+  width: string | null;
   disease: DiseaseInfo | null;
   advice: CareAdvice[];
   feedback?: {
@@ -49,10 +48,57 @@ export interface AnalysisResult {
   };
 }
 
-
-
 export interface DiseaseInfo {
   name: string;
   severity: string;
   recommendations: string[];
+}
+
+export interface User {
+  id: string;
+  name: string;
+  username: string;
+  createdAt: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface ChatSource {
+  title: string;
+  url: string;
+}
+
+export type ChatMode = 'plant' | 'casual' | 'web';
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+  mode: ChatMode;
+  sources?: ChatSource[];
+  plantId?: string | null;
+}
+
+export type ReminderRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+
+export interface Reminder {
+  id: string;
+  plantId: string | null;
+  title: string;
+  notes: string | null;
+  dueAt: string;
+  recurrence: ReminderRecurrence;
+  completedAt: string | null;
+  lastCompletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GuestAnalysisResult {
+  summary: string;
+  analysis: AnalysisResult;
 }
