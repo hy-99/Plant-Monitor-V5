@@ -1,22 +1,60 @@
 import { AuthResponse, ChatMessage, ChatMode, ChatSource, GuestAnalysisResult, Plant, PlantSnapshot, Reminder, StorageUsage, User } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const resolveApiBaseUrl = () => {
+  const configured = import.meta.env.VITE_API_BASE_URL?.trim();
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname, port } = window.location;
+    const isLocalFrontend =
+      (hostname === 'localhost' || hostname === '127.0.0.1') &&
+      (port === '3000' || port === '5173');
+
+    // Prefer Vite's dev proxy for local development even if the env file still points at localhost:8000.
+    if (isLocalFrontend && configured && /^https?:\/\/(localhost|127\.0\.0\.1):8000\/api\/?$/i.test(configured)) {
+      return '/api';
+    }
+
+    if (!configured && isLocalFrontend) {
+      return '/api';
+    }
+
+    if (!configured && protocol.startsWith('http')) {
+      return `${window.location.origin}/api`;
+    }
+  }
+
+  return configured || '/api';
+};
+
+const API_BASE_URL = resolveApiBaseUrl().replace(/\/$/, '');
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 const request = async <T>(path: string, options: { method?: HttpMethod; token?: string | null; body?: unknown } = {}): Promise<T> => {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && /failed to fetch/i.test(error.message)
+        ? 'Unable to reach the Plant Monitor API. Make sure the server is running on port 8000.'
+        : error instanceof Error
+          ? error.message
+          : 'Unable to reach the Plant Monitor API.'
+    );
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Request failed with status ${response.status}`);
+    throw new Error(errorBody?.error || errorBody?.detail || `Request failed with status ${response.status}`);
   }
 
   if (response.status === 204) {
@@ -34,6 +72,15 @@ export const login = (payload: { username: string; password: string }) =>
 
 export const getCurrentUser = async (token: string) => {
   const response = await request<{ user: User }>('/auth/me', { token });
+  return response.user;
+};
+
+export const updateCurrentUser = async (token: string, payload: { name: string }) => {
+  const response = await request<{ user: User }>('/auth/me', {
+    method: 'PATCH',
+    token,
+    body: payload,
+  });
   return response.user;
 };
 

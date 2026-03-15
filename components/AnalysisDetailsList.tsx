@@ -11,6 +11,19 @@ interface AnalysisDetailsListProps {
   analysis: AnalysisResult;
 }
 
+const formatMeasurement = (value: string | null | undefined, fallbackLabel: 'height' | 'width') => {
+  if (!value) {
+    return fallbackLabel === 'height' ? 'Estimated from plant profile' : 'Estimated from visible spread';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || /^(n\/a|na|unknown|null|not visible)$/i.test(trimmed)) {
+    return fallbackLabel === 'height' ? 'Estimated from plant profile' : 'Estimated from visible spread';
+  }
+
+  return trimmed;
+};
+
 const DetailItem: React.FC<{ icon: React.ReactNode; label: string; value: string | React.ReactNode | null }> = ({ icon, label, value }) => {
   if (value === null || value === undefined) return null;
   return (
@@ -44,8 +57,21 @@ const HealthIndicator: React.FC<{ health: AnalysisResult['health'] }> = ({ healt
 };
 
 const AnalysisDetailsList: React.FC<AnalysisDetailsListProps> = ({ analysis }) => {
+  const diagnosisLine = analysis.disease
+    ? `${analysis.disease.name} (${analysis.disease.severity})`
+    : analysis.health === 'Healthy'
+      ? 'No clear disease signal detected'
+      : 'No named disease detected from this image';
+
   return (
-    <ul className="divide-y divide-white/10">
+    <div className="space-y-5">
+      <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
+        <p className="text-xs uppercase tracking-[0.22em] text-primary">Diagnosis snapshot</p>
+        <p className="mt-2 text-sm text-slate-200">
+          {analysis.commonName || analysis.species || 'This plant'} currently reads as <span className="font-semibold text-white">{analysis.health.toLowerCase()}</span>. {diagnosisLine}.
+        </p>
+      </div>
+      <ul className="divide-y divide-white/10">
       <DetailItem 
         icon={<TagIcon className="h-5 w-5 text-primary" />} 
         label="Common Name"
@@ -81,12 +107,12 @@ const AnalysisDetailsList: React.FC<AnalysisDetailsListProps> = ({ analysis }) =
       <DetailItem 
         icon={<RulerIcon className="h-5 w-5 text-primary" />} 
         label="Est. Height"
-        value={analysis.height || 'N/A'}
+        value={formatMeasurement(analysis.height, 'height')}
       />
       <DetailItem 
         icon={<RulerIcon className="h-5 w-5 text-primary" />} 
         label="Est. Width"
-        value={analysis.width || 'N/A'}
+        value={formatMeasurement(analysis.width, 'width')}
       />
       {analysis.disease && (
         <DetailItem 
@@ -95,7 +121,8 @@ const AnalysisDetailsList: React.FC<AnalysisDetailsListProps> = ({ analysis }) =
           value={`${analysis.disease.name} (${analysis.disease.severity})`}
         />
       )}
-    </ul>
+      </ul>
+    </div>
   );
 };
 

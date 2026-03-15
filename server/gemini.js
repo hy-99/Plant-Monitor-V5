@@ -1,5 +1,8 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import { getUploadRoot } from './storage.js';
 
 dotenv.config({ path: '.env.local', quiet: true });
 dotenv.config({ quiet: true });
@@ -12,6 +15,12 @@ if (!apiKey) {
 
 const ai = new GoogleGenAI({ apiKey });
 const pdddApiUrl = process.env.PDDD_API_URL || 'http://localhost:8001';
+const extensionToMimeType = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
 
 const analysisSchema = {
   type: Type.OBJECT,
@@ -95,6 +104,58 @@ const createFallbackAnalysis = () => ({
   advice: [],
 });
 
+const normalizeMeasurement = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || /^(n\/a|na|unknown|null|not visible)$/i.test(trimmed)) return null;
+  return trimmed;
+};
+
+const inferDimensionFallback = (analysis) => {
+  const descriptor = `${analysis.commonName || ''} ${analysis.species || ''}`.toLowerCase();
+
+  const ranges = [
+    { terms: ['monstera'], height: '45-90 cm', width: '35-75 cm' },
+    { terms: ['pothos', 'epipremnum'], height: '20-40 cm', width: '20-60 cm' },
+    { terms: ['philodendron'], height: '25-60 cm', width: '20-55 cm' },
+    { terms: ['snake plant', 'sansevieria', 'dracaena trifasciata'], height: '30-80 cm', width: '15-35 cm' },
+    { terms: ['spider plant', 'chlorophytum'], height: '20-35 cm', width: '30-55 cm' },
+    { terms: ['zz plant', 'zamioculcas'], height: '35-70 cm', width: '25-45 cm' },
+    { terms: ['fern'], height: '20-45 cm', width: '25-50 cm' },
+    { terms: ['calathea', 'prayer plant', 'maranta'], height: '20-40 cm', width: '25-45 cm' },
+    { terms: ['ficus', 'rubber plant'], height: '45-100 cm', width: '30-70 cm' },
+    { terms: ['orchid', 'phalaenopsis'], height: '25-55 cm', width: '18-30 cm' },
+    { terms: ['aloe', 'succulent'], height: '12-28 cm', width: '12-25 cm' },
+  ];
+
+  const matched = ranges.find((range) => range.terms.some((term) => descriptor.includes(term)));
+  if (matched) {
+    return {
+      height: matched.height,
+      width: matched.width,
+    };
+  }
+
+  return {
+    height: '20-45 cm',
+    width: '18-40 cm',
+  };
+};
+
+const normalizeAnalysis = (analysis) => {
+  if (!analysis?.isPlant) {
+    return analysis;
+  }
+
+  const fallback = inferDimensionFallback(analysis);
+
+  return {
+    ...analysis,
+    height: normalizeMeasurement(analysis.height) || fallback.height,
+    width: normalizeMeasurement(analysis.width) || fallback.width,
+  };
+};
+
 const runPdddAnalysis = async (imageData) => {
   const response = await fetch(`${pdddApiUrl}/pddd/analyze`, {
     method: 'POST',
@@ -121,6 +182,36 @@ export const dataUrlToInlineData = (imageDataUrl) => {
     mimeType: match[1],
     data: match[2],
   };
+};
+
+const storedFileToInlineData = async (snapshot) => {
+  const relativePath = typeof snapshot.imagePath === 'string' ? snapshot.imagePath.trim() : '';
+  if (!relativePath) {
+    throw new Error('Snapshot is missing a stored image path.');
+  }
+
+  const absolutePath = path.join(getUploadRoot(), relativePath);
+  const fileBuffer = await fs.readFile(absolutePath);
+  const mimeType =
+    snapshot.imageMimeType ||
+    extensionToMimeType[path.extname(relativePath).toLowerCase()];
+
+  if (!mimeType) {
+    throw new Error(`Unsupported stored image type for snapshot ${snapshot.id || 'unknown'}.`);
+  }
+
+  return {
+    mimeType,
+    data: fileBuffer.toString('base64'),
+  };
+};
+
+const snapshotToInlineData = async (snapshot) => {
+  if (typeof snapshot.imageDataUrl === 'string' && snapshot.imageDataUrl.startsWith('data:')) {
+    return dataUrlToInlineData(snapshot.imageDataUrl);
+  }
+
+  return storedFileToInlineData(snapshot);
 };
 
 const runPlantGate = async (imageData) => {
@@ -196,7 +287,9 @@ Requirements:
 1. First decide if the main subject is a real, living plant.
 2. If not, set isPlant to false, confidence low, health to Unknown, disease to null, advice to [].
 3. If it is a plant, provide realistic species/commonName if you are reasonably confident.
-4. Provide exactly three short, practical care tips when a plant is present.
+4. If it is a plant, always provide a best-effort estimated height and width in centimeters as a plausible range like "25-40 cm". Do not return null, N/A, unknown, or empty strings for height or width when a plant is visible.
+5. Base size estimates on visible leaf size, pot scale, growth habit, and common indoor specimen size. Be conservative and realistic rather than overconfident.
+6. Provide exactly three short, practical care tips when a plant is present.
 5. Return only one JSON object matching the schema.`,
           },
         ],
@@ -216,7 +309,7 @@ Requirements:
       analysis.plantGateConfidence = plantGateResult.confidence;
     }
 
-    let nextAnalysis = analysis;
+    let nextAnalysis = normalizeAnalysis(analysis);
 
     try {
       const pdddResult = await runPdddAnalysis(imageData);
@@ -225,21 +318,21 @@ Requirements:
         const confidence = pdddResult.disease_confidence;
 
         if (confidence >= 0.6 && pdddResult.disease_name) {
-          nextAnalysis = {
+          nextAnalysis = normalizeAnalysis({
             ...nextAnalysis,
             disease: {
               name: pdddResult.disease_name,
               severity: nextAnalysis.disease?.severity || 'Unknown',
               recommendations: nextAnalysis.disease?.recommendations || [],
             },
-          };
+          });
         }
 
         if (confidence >= 0.6 && (nextAnalysis.health === 'Unknown' || nextAnalysis.confidence < 0.6)) {
-          nextAnalysis = {
+          nextAnalysis = normalizeAnalysis({
             ...nextAnalysis,
             health: pdddResult.health_status === 'Healthy' ? 'Healthy' : 'Unhealthy',
-          };
+          });
         }
       }
     } catch (pdddError) {
@@ -284,23 +377,41 @@ ${recentText}`;
     .join('\n\n');
 };
 
-const buildImageParts = (plants, selectedPlantId) => {
+const buildImageParts = async (plants, selectedPlantId) => {
   const relevantPlants = selectedPlantId
     ? plants.filter((plant) => plant.id === selectedPlantId)
     : plants.slice(0, 4);
 
-  return relevantPlants
-    .flatMap((plant) => plant.snapshots.slice(-2))
-    .slice(-4)
-    .map((snapshot) => {
-      const imageData = dataUrlToInlineData(snapshot.imageDataUrl);
-      return {
-        inlineData: {
-          mimeType: imageData.mimeType,
-          data: imageData.data,
-        },
-      };
-    });
+  const recentSnapshots = relevantPlants
+    .flatMap((plant) =>
+      plant.snapshots.slice(-2).map((snapshot) => ({
+        ...snapshot,
+        plantName: plant.name,
+      }))
+    )
+    .slice(-4);
+
+  const imageParts = await Promise.all(
+    recentSnapshots.map(async (snapshot) => {
+      try {
+        const imageData = await snapshotToInlineData(snapshot);
+        return {
+          inlineData: {
+            mimeType: imageData.mimeType,
+            data: imageData.data,
+          },
+        };
+      } catch (error) {
+        console.warn(
+          `Skipping snapshot ${snapshot.id || 'unknown'} for chat image context.`,
+          error instanceof Error ? error.message : error
+        );
+        return null;
+      }
+    })
+  );
+
+  return imageParts.filter(Boolean);
 };
 
 const extractGroundingSources = (result) => {
@@ -335,6 +446,7 @@ ${buildPlantContext(plants, selectedPlantId)}
 
 If plant context is relevant, refer to it directly. Be explicit when you are inferring from photos or prior analysis.`;
 
+  const imageParts = await buildImageParts(plants, selectedPlantId);
   const contents = [
     ...history.map((message) => ({
       role: message.role === 'assistant' ? 'model' : 'user',
@@ -342,7 +454,7 @@ If plant context is relevant, refer to it directly. Be explicit when you are inf
     })),
     {
       role: 'user',
-      parts: [...buildImageParts(plants, selectedPlantId), { text: prompt }],
+      parts: [...imageParts, { text: prompt }],
     },
   ];
 

@@ -12,6 +12,9 @@ import GrowthChart from './GrowthChart';
 import ActionPlan from './ActionPlan';
 import AnalysisDetailsList from './AnalysisDetailsList';
 import AnalysisScanner from './AnalysisScanner';
+import ConfirmationModal from './ConfirmationModal';
+import { buildComparisonPanel, buildEducationPanel } from '../utils/analysisEducation';
+import { getPlantTrend } from '../utils/plantInsights';
 
 interface DetailPageProps {
   plant: Plant;
@@ -20,8 +23,16 @@ interface DetailPageProps {
   onUpdate: (plantId: string, imageDataUrl: string) => Promise<void>;
   onUpdateFeedback: (plantId: string, snapshotId: string, feedback: { rating: 'correct' | 'incorrect'; comment?: string }) => void;
   onUpdatePlantName: (plantId: string, newName: string) => void;
-  onDeleteSnapshot: (plantId: string, snapshotId: string) => void;
+  onDeleteSnapshot: (plantId: string, snapshotId: string) => Promise<void> | void;
   isWorking: boolean;
+}
+
+interface ConfirmationState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  tone?: 'primary' | 'danger';
+  onConfirm: () => void | Promise<void>;
 }
 
 const DetailPage: React.FC<DetailPageProps> = ({
@@ -40,11 +51,27 @@ const DetailPage: React.FC<DetailPageProps> = ({
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(plant.name);
   const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const selectedSnapshot = plant.snapshots.find((snapshot) => snapshot.id === selectedSnapshotId);
+  const selectedSnapshotIndex = plant.snapshots.findIndex((snapshot) => snapshot.id === selectedSnapshotId);
+  const previousSnapshot =
+    selectedSnapshotIndex > 0 ? plant.snapshots[selectedSnapshotIndex - 1] : null;
+  const educationPanel = selectedSnapshot ? buildEducationPanel(selectedSnapshot.analysis) : null;
+  const comparisonPanel =
+    selectedSnapshot && previousSnapshot ? buildComparisonPanel(selectedSnapshot, previousSnapshot) : null;
+  const trend = getPlantTrend(plant);
+  const plantLabel =
+    selectedSnapshot?.analysis.commonName || selectedSnapshot?.analysis.species || 'Saved plant';
+  const trendCopy =
+    trend.status === 'improving'
+      ? 'This plant is showing signs of improvement across recent snapshots.'
+      : trend.status === 'declining'
+        ? 'Recent snapshots suggest the plant may need closer attention.'
+        : 'Recent snapshots look relatively stable so far.';
 
   useEffect(() => {
     if (!selectedSnapshot && plant.snapshots.length > 0) {
@@ -61,45 +88,66 @@ const DetailPage: React.FC<DetailPageProps> = ({
   }, [isEditingName]);
 
   const handleNameSave = () => {
-    if (editedName.trim() && editedName !== plant.name) {
-      if (!window.confirm('Keep this plant name change?')) {
-        setEditedName(plant.name);
-        setIsEditingName(false);
-        return;
-      }
-      onUpdatePlantName(plant.id, editedName.trim());
+    const nextName = editedName.trim();
+
+    if (nextName && nextName !== plant.name) {
+      setEditedName(plant.name);
+      setIsEditingName(false);
+      setConfirmation({
+        title: 'Save this plant name change?',
+        message: `This plant will be renamed to "${nextName}" across your collection and history.`,
+        confirmLabel: 'Save Name',
+        onConfirm: () => onUpdatePlantName(plant.id, nextName),
+      });
+      return;
     }
+
+    setEditedName(plant.name);
     setIsEditingName(false);
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    event.target.value = '';
 
     setError(null);
-    try {
-      if (!window.confirm('Keep this new snapshot and save its image to managed storage?')) {
-        return;
-      }
-      const imageDataUrl = await fileToDataUrl(file);
-      await onUpdate(plant.id, imageDataUrl);
-    } catch (updateError) {
-      console.error(updateError);
-      setError(updateError instanceof Error ? updateError.message : 'Failed to analyze the new image. Please try again.');
-    }
+    setConfirmation({
+      title: 'Save this new snapshot?',
+      message: 'This will upload the image into managed storage, analyze it, and add a fresh comparison point to this plant history.',
+      confirmLabel: 'Save Snapshot',
+      onConfirm: async () => {
+        try {
+          const imageDataUrl = await fileToDataUrl(file);
+          await onUpdate(plant.id, imageDataUrl);
+        } catch (updateError) {
+          console.error(updateError);
+          setError(updateError instanceof Error ? updateError.message : 'Failed to analyze the new image. Please try again.');
+          throw updateError;
+        }
+      },
+    });
   };
 
   const handleDelete = () => {
-    if (selectedSnapshot && window.confirm('Are you sure you want to delete this snapshot? This action cannot be undone.')) {
-      onDeleteSnapshot(plant.id, selectedSnapshot.id);
-    }
+    if (!selectedSnapshot) return;
+
+    setConfirmation({
+      title: plant.snapshots.length === 1 ? 'Delete this final snapshot?' : 'Delete this snapshot?',
+      message: plant.snapshots.length === 1
+        ? 'This is the last saved screenshot for this plant. The app will return home, then remove the plant record after a short delay.'
+        : 'This action cannot be undone. The selected image, analysis result, and comparison point will be removed from this plant history.',
+      confirmLabel: plant.snapshots.length === 1 ? 'Delete Plant Record' : 'Delete Snapshot',
+      tone: 'danger',
+      onConfirm: () => onDeleteSnapshot(plant.id, selectedSnapshot.id),
+    });
   };
 
   if (!selectedSnapshot) {
     return (
       <div className="mx-auto max-w-4xl p-4 text-center sm:p-6 lg:p-8">
         <h1 className="text-2xl font-bold text-white">No snapshots available for this plant.</h1>
-        <button onClick={() => fileInputRef.current?.click()} className="aurora-button mx-auto mt-4 flex items-center justify-center rounded-full bg-primary px-6 py-3 text-base font-medium text-slate-950">
+        <button onClick={() => fileInputRef.current?.click()} className="aurora-button mx-auto mt-4 flex items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-400/10 px-6 py-3 text-base font-medium text-cyan-300">
           <PlusIcon className="mr-2 h-5 w-5" />
           Add Snapshot
         </button>
@@ -110,6 +158,16 @@ const DetailPage: React.FC<DetailPageProps> = ({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 animate-fade-in">
+      {confirmation && (
+        <ConfirmationModal
+          title={confirmation.title}
+          message={confirmation.message}
+          confirmLabel={confirmation.confirmLabel}
+          tone={confirmation.tone}
+          onConfirm={confirmation.onConfirm}
+          onClose={() => setConfirmation(null)}
+        />
+      )}
       <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
 
       <div className="mb-6 flex items-center justify-between">
@@ -141,14 +199,42 @@ const DetailPage: React.FC<DetailPageProps> = ({
         </button>
       </div>
 
+      <div className="mb-8 grid gap-4 lg:grid-cols-4">
+        <div className="glass-panel detail-stat-card rounded-[1.75rem] p-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Latest status</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{selectedSnapshot.analysis.health}</p>
+          <p className="mt-2 text-sm text-slate-300">{trendCopy}</p>
+        </div>
+        <div className="glass-panel detail-stat-card rounded-[1.75rem] p-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Plant identified</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{plantLabel}</p>
+          <p className="mt-2 text-sm text-slate-300">Latest analysis name for this plant record.</p>
+        </div>
+        <div className="glass-panel detail-stat-card rounded-[1.75rem] p-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Snapshots saved</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{plant.snapshots.length}</p>
+          <p className="mt-2 text-sm text-slate-300">More check-ins make trend detection and care learning stronger.</p>
+        </div>
+        <div className="glass-panel detail-stat-card rounded-[1.75rem] p-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Latest capture</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{new Date(selectedSnapshot.timestamp).toLocaleDateString()}</p>
+          <p className="mt-2 text-sm text-slate-300">Use similar framing next time for better comparison accuracy.</p>
+        </div>
+      </div>
+
       <div className="mb-8">
-        <h2 className="mb-3 text-xl font-bold text-white">History</h2>
-        <div className="flex items-center gap-4 overflow-x-auto pb-2">
+        <div className="mb-3 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">History</h2>
+            <p className="mt-1 text-sm text-slate-300">Review past snapshots in order, compare visible changes, and keep a real progression record for this plant.</p>
+          </div>
+        </div>
+        <div className="detail-history-strip flex items-center gap-4 overflow-x-auto pb-2">
           {plant.snapshots.slice().reverse().map((snapshot) => (
             <div
               key={snapshot.id}
               onClick={() => setSelectedSnapshotId(snapshot.id)}
-              className={`relative flex-shrink-0 cursor-pointer overflow-hidden rounded-2xl transition-all duration-300 ${
+              className={`detail-history-thumb relative flex-shrink-0 cursor-pointer overflow-hidden rounded-2xl transition-all duration-300 ${
                 selectedSnapshotId === snapshot.id ? 'ring-4 ring-primary ring-offset-2 ring-offset-slate-950' : 'hover:scale-105'
               }`}
             >
@@ -166,14 +252,14 @@ const DetailPage: React.FC<DetailPageProps> = ({
         </div>
       </div>
 
-      {isWorking ? <AnalysisScanner label="Comparing fresh snapshot data" detail="The sensor buddy is checking new growth, disease clues, and anything that changed since the last photo." /> : null}
+      {isWorking ? <AnalysisScanner label="Comparing fresh snapshot data" detail="Autonomous drones are checking new growth, disease clues, and anything that changed since the last photo." /> : null}
 
       {error && <p className="my-4 rounded-2xl border border-rose-300/20 bg-rose-500/10 p-3 text-center text-rose-100">{error}</p>}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <div className="glass-panel rounded-[2rem] p-6 lg:col-span-3">
+        <div className="glass-panel detail-main-panel rounded-[2rem] p-6 lg:col-span-3">
           <h3 className="mb-4 text-2xl font-bold text-white">Snapshot Details</h3>
-          <img src={selectedSnapshot.imageUrl} alt={plant.name} className="mb-6 w-full rounded-[1.5rem] shadow-md" />
+          <img src={selectedSnapshot.imageUrl} alt={plant.name} className="detail-main-image mb-6 w-full rounded-[1.5rem] shadow-md" />
 
           <div className="mb-6">
             <div className="mb-2 flex items-center gap-2 font-bold text-primary">
@@ -183,10 +269,64 @@ const DetailPage: React.FC<DetailPageProps> = ({
             <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-slate-200">{selectedSnapshot.summary || 'No summary available.'}</p>
           </div>
 
+          {educationPanel ? (
+            <div className="mb-6 rounded-[1.75rem] border border-sky-300/18 bg-sky-400/8 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-200">Learning Panel</p>
+              <h4 className="mt-2 text-lg font-bold text-white">{educationPanel.title}</h4>
+              <p className="mt-3 text-sm leading-7 text-slate-200">{educationPanel.summary}</p>
+              <ul className="mt-4 space-y-2 text-sm text-slate-200">
+                {educationPanel.bullets.map((bullet) => (
+                  <li key={bullet} className="rounded-2xl bg-white/5 px-4 py-3">
+                    {bullet}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {comparisonPanel ? (
+            <div
+              className={`mb-6 rounded-[1.75rem] p-5 ${
+                comparisonPanel.tone === 'positive'
+                  ? 'border border-emerald-300/18 bg-emerald-400/8'
+                  : comparisonPanel.tone === 'warning'
+                    ? 'border border-amber-300/18 bg-amber-400/8'
+                    : 'border border-white/10 bg-white/5'
+              }`}
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-primary">Change Over Time</p>
+              <h4 className="mt-2 text-lg font-bold text-white">{comparisonPanel.title}</h4>
+              <p className="mt-3 text-sm leading-7 text-slate-200">{comparisonPanel.summary}</p>
+              <ul className="mt-4 space-y-2 text-sm text-slate-200">
+                {comparisonPanel.bullets.map((bullet) => (
+                  <li key={bullet} className="rounded-2xl bg-white/5 px-4 py-3">
+                    {bullet}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <AnalysisDetailsList analysis={selectedSnapshot.analysis} />
         </div>
 
         <div className="space-y-6 lg:col-span-2">
+          <div className="glass-panel rounded-[2rem] p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">Snapshot takeaways</p>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Trend read</p>
+                <p className="mt-2 text-sm text-slate-200">{trend.reasons[0]}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Best next observation</p>
+                <p className="mt-2 text-sm text-slate-200">
+                  {selectedSnapshot.analysis.advice[0]?.description || 'Capture a similar follow-up image after the next care change to see whether the plant responds.'}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="glass-panel rounded-[2rem] p-6">
             <h3 className="mb-4 text-2xl font-bold text-white">Care Action Plan</h3>
             <ActionPlan advice={selectedSnapshot.analysis.advice} />
@@ -194,7 +334,7 @@ const DetailPage: React.FC<DetailPageProps> = ({
 
           <div className="glass-panel rounded-[2rem] p-6">
             <h3 className="mb-4 text-2xl font-bold text-white">Growth Chart</h3>
-            <GrowthChart snapshots={plant.snapshots} />
+            <GrowthChart plant={plant} snapshots={plant.snapshots} />
           </div>
 
           <div className="glass-panel rounded-[2rem] p-6">

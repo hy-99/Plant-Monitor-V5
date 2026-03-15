@@ -1,5 +1,5 @@
 {
-  "name": "Plant Monitor V4",
-  "description": "A plant health monitoring application that uses AI to identify plants, assess their health, detect diseases, and measure physical dimensions from uploaded images.",
+  "name": "Plant Guard V5",
+  "description": "An AI-powered plant care workspace for diagnosis, tracking, reminders, and educational guidance from uploaded plant images.",
   "requestFramePermissions": []
 }

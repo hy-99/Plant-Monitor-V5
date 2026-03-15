@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 
 import { requireAuth, signAuthToken } from './auth.js';
-import { sql } from './db.js';
+import { initializeDatabase, sql } from './db.js';
 import { analyzePlantImage, answerChat, dataUrlToInlineData } from './gemini.js';
 import { decodeImageDataUrl, enforceUserStorageQuota, ensureUploadRoot, getUploadRoot, persistImageForUser, removeStoredImage } from './storage.js';
 
@@ -13,7 +13,17 @@ dotenv.config({ quiet: true });
 
 const app = express();
 const port = Number(process.env.PORT || 8000);
-const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:3000';
+const configuredOrigins = (process.env.CLIENT_ORIGIN || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  ...configuredOrigins,
+]);
 const recurrenceValues = new Set(['none', 'daily', 'weekly', 'monthly']);
 const usernamePattern = /^[a-z0-9_]{3,20}$/;
 
@@ -21,7 +31,12 @@ await ensureUploadRoot();
 
 app.use(
   cors({
-    origin: clientOrigin,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} is not allowed by CORS.`));
+    },
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
@@ -38,15 +53,25 @@ const sanitizeUser = (user) => ({
 
 const buildAbsoluteImageUrl = (req, imagePath) => `${req.protocol}://${req.get('host')}/uploads/${imagePath}`;
 
-const mapSnapshot = (row, req) => ({
-  id: row.snapshot_id,
-  imageUrl: row.image_path ? buildAbsoluteImageUrl(req, row.image_path) : row.image_data_url,
-  summary: row.summary,
-  analysis: row.analysis,
-  timestamp: row.timestamp,
-});
+const mapSnapshot = (row, req, options = {}) => {
+  const snapshot = {
+    id: row.snapshot_id,
+    imageUrl: row.image_path ? buildAbsoluteImageUrl(req, row.image_path) : row.image_data_url,
+    summary: row.summary,
+    analysis: row.analysis,
+    timestamp: row.timestamp,
+  };
 
-const mapPlantRows = (rows, req) => {
+  if (options.includeChatImageData) {
+    snapshot.imageDataUrl = row.image_data_url;
+    snapshot.imagePath = row.image_path;
+    snapshot.imageMimeType = row.image_mime_type;
+  }
+
+  return snapshot;
+};
+
+const mapPlantRows = (rows, req, options = {}) => {
   const plants = new Map();
 
   for (const row of rows) {
@@ -59,7 +84,7 @@ const mapPlantRows = (rows, req) => {
     }
 
     if (row.snapshot_id) {
-      plants.get(row.plant_id).snapshots.push(mapSnapshot(row, req));
+      plants.get(row.plant_id).snapshots.push(mapSnapshot(row, req, options));
     }
   }
 
@@ -89,7 +114,7 @@ const mapChatMessage = (row) => ({
   plantId: row.plant_id,
 });
 
-const getUserPlants = async (userId, req) => {
+const getUserPlants = async (userId, req, options = {}) => {
   const rows = await sql`
     select
       p.id as plant_id,
@@ -97,6 +122,7 @@ const getUserPlants = async (userId, req) => {
       s.id as snapshot_id,
       s.image_data_url,
       s.image_path,
+      s.image_mime_type,
       s.summary,
       s.analysis,
       s.timestamp
@@ -106,7 +132,7 @@ const getUserPlants = async (userId, req) => {
     order by p.updated_at desc, s.timestamp asc
   `;
 
-  return mapPlantRows(rows, req);
+  return mapPlantRows(rows, req, options);
 };
 
 const getUserReminders = async (userId) => {
@@ -292,6 +318,27 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     from users
     where id = ${req.auth.sub}
     limit 1
+  `;
+
+  if (!user) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  return res.json({ user: sanitizeUser(user) });
+});
+
+app.patch('/api/auth/me', requireAuth, async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+
+  if (!name) {
+    return res.status(400).json({ error: 'Display name is required.' });
+  }
+
+  const [user] = await sql`
+    update users
+    set name = ${name}
+    where id = ${req.auth.sub}
+    returning id, name, username, created_at
   `;
 
   if (!user) {
@@ -648,7 +695,7 @@ app.post('/api/chat', requireAuth, async (req, res) => {
       }
     }
 
-    const plants = await getUserPlants(req.auth.sub, req);
+    const plants = await getUserPlants(req.auth.sub, req, { includeChatImageData: true });
     const result = await answerChat({
       mode,
       question,
@@ -684,5 +731,13 @@ app.post('/api/chat', requireAuth, async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Plant Monitor API listening on http://localhost:${port}`);
+  console.log(`Plant Guard API listening on http://localhost:${port}`);
 });
+
+initializeDatabase()
+  .then(() => {
+    console.log('Database initialization complete.');
+  })
+  .catch((error) => {
+    console.error('Database initialization failed.', error);
+  });
