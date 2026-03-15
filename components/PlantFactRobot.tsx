@@ -53,18 +53,18 @@ const useMinWidth = (minWidth: number) => {
 };
 
 const homeClickLines = [
-  'That click woke up the greenhouse goo.',
-  'I can absolutely do another little performance.',
-  'Now the dashboard feels a bit more alive.',
-  'Puddle morale is currently excellent.',
-  'That was the correct amount of chaos.',
+  'Lantern glow boosted.',
+  'I can absolutely do another little orbit.',
+  'The dashboard feels steadier already.',
+  'Companion morale is currently excellent.',
+  'That was the correct amount of greenhouse energy.',
 ] as const;
 
 const authClickLines = [
   'I am helping with quiet login support.',
-  'Tiny companion nod. Form still looks good.',
+  'Tiny lantern nod. The form still looks good.',
   'I can do this all day if needed.',
-  'A polite slime flourish has occurred.',
+  'A polite orbit flourish has occurred.',
   'Mood upgraded. Continue the form.',
 ] as const;
 
