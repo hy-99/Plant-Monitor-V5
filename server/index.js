@@ -290,26 +290,31 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid username.' });
   }
 
-  const [user] = await sql`
-    select id, name, username, password_hash, created_at
-    from users
-    where username = ${normalizedUsername}
-    limit 1
-  `;
+  try {
+    const [user] = await sql`
+      select id, name, username, password_hash, created_at
+      from users
+      where username = ${normalizedUsername}
+      limit 1
+    `;
 
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid username or password.' });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    return res.json({
+      token: signAuthToken(user),
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to log in right now.' });
   }
-
-  const isValid = await bcrypt.compare(password, user.password_hash);
-  if (!isValid) {
-    return res.status(401).json({ error: 'Invalid username or password.' });
-  }
-
-  return res.json({
-    token: signAuthToken(user),
-    user: sanitizeUser(user),
-  });
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
